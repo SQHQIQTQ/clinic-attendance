@@ -131,7 +131,7 @@ export default function ClinicAttendance() {
       <div className="flex flex-col h-screen items-center justify-center bg-gray-100 p-6">
         <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center">
           <LinkIcon className="w-12 h-12 text-blue-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-4">歡迎初次使用</h2>
+          <h2 className="text-xl font-bold mb-4">歡迎初次使用v3.0</h2>
           <p className="mb-6 text-gray-500">請選擇您的姓名進行綁定</p>
           <select 
             className="w-full p-3 border rounded-lg mb-6 bg-white text-black"
