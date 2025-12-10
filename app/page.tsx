@@ -1,71 +1,98 @@
 'use client';
 
+// 1. 引入必要的工具
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import liff from '@line/liff';
-import { Clock, CheckCircle, LogOut, Link as LinkIcon, User } from 'lucide-react';
+import { Clock, CheckCircle, LogOut, Link as LinkIcon, User, RefreshCw } from 'lucide-react';
 
-// --- Supabase 設定 ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ucpkvptnhgbtmghqgbof.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
+// 2. Supabase 設定 (這裡直接填入你的 Key，確保不會讀不到)
+const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// 3. LIFF ID 設定
 const LIFF_ID = '2008669814-8OqQmkaL'; 
 
-export default function ClinicAttendance() {
-  const [status, setStatus] = useState('loading'); // loading, bind_needed, ready, error
-  const [staffUser, setStaffUser] = useState(null);
-  const [unboundStaffList, setUnboundStaffList] = useState([]);
-  const [selectedStaffId, setSelectedStaffId] = useState('');
-  const [logs, setLogs] = useState([]);
-  const [lineProfile, setLineProfile] = useState(null);
+// 定義資料類型 (解決 TypeScript 紅字)
+type Staff = {
+  id: number;
+  name: string;
+  line_user_id: string | null;
+};
 
+type Log = {
+  id: number;
+  clock_in_time: string;
+  clock_out_time: string | null;
+  work_hours: number | null;
+};
+
+export default function ClinicAttendance() {
+  const [status, setStatus] = useState<string>('loading'); 
+  const [staffUser, setStaffUser] = useState<Staff | null>(null);
+  const [unboundStaffList, setUnboundStaffList] = useState<Staff[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [logs, setLogs] = useState<Log[]>([]);
+  const [lineProfile, setLineProfile] = useState<any>(null);
+
+  // A. 初始化
   useEffect(() => {
-    const initLiff = async () => {
+    const initSystem = async () => {
       try {
+        // 初始化 LIFF
         await liff.init({ liffId: LIFF_ID });
-        // 1. 檢查是否在 Line 內或已登入
+        
+        // 如果沒登入，就登入
         if (!liff.isLoggedIn()) {
-          liff.login(); 
+          liff.login();
           return;
         }
+
         const profile = await liff.getProfile();
         setLineProfile(profile);
-        
-        // 2. 檢查資料庫綁定
+        console.log('Line User ID:', profile.userId); // Debug用
+
+        // 檢查綁定
         checkBinding(profile.userId);
+
       } catch (err) {
         console.error('LIFF Error:', err);
-        // 如果 LIFF 失敗 (例如在電腦瀏覽器開發)，顯示錯誤
+        // 如果在電腦上測，也可以用假資料繞過 (僅供測試)
+        // checkBinding('mock-line-id'); 
         setStatus('error');
       }
     };
-    initLiff();
+
+    initSystem();
   }, []);
 
-  const checkBinding = async (lineUserId) => {
-    // 查詢這個 Line ID 是否已存在
-    const { data } = await supabase
+  // B. 檢查是否綁定過
+  const checkBinding = async (lineUserId: string) => {
+    const { data, error } = await supabase
       .from('staff')
       .select('*')
       .eq('line_user_id', lineUserId)
       .single();
 
     if (data) {
+      // 有綁定過
       setStaffUser(data);
       setStatus('ready');
       fetchTodayLogs(data.name);
     } else {
-      // 未綁定：抓取還沒綁定的人員名單
+      // 沒綁定過，抓取名單
       const { data: unbound } = await supabase
         .from('staff')
         .select('*')
         .is('line_user_id', null);
+      
       setUnboundStaffList(unbound || []);
       setStatus('bind_needed');
     }
   };
 
+  // C. 執行綁定
   const handleBind = async () => {
     if (!selectedStaffId) return alert('請選擇姓名');
     
@@ -75,14 +102,15 @@ export default function ClinicAttendance() {
       .eq('id', selectedStaffId);
 
     if (error) {
-      alert('綁定失敗:' + error.message);
+      alert('綁定失敗: ' + error.message);
     } else {
       alert('綁定成功！');
       window.location.reload();
     }
   };
 
-  const fetchTodayLogs = async (staffName) => {
+  // D. 抓取今日紀錄
+  const fetchTodayLogs = async (staffName: string) => {
     const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase
       .from('attendance_logs')
@@ -90,106 +118,137 @@ export default function ClinicAttendance() {
       .eq('staff_name', staffName)
       .gte('created_at', today + 'T00:00:00')
       .order('created_at', { ascending: false });
+    
+    // @ts-ignore
     setLogs(data || []);
   };
 
+  // E. 上班打卡
   const handleClockIn = async () => {
     if (!staffUser) return;
     const { error } = await supabase
       .from('attendance_logs')
       .insert([{ staff_name: staffUser.name, clock_in_time: new Date(), status: 'working' }]);
+    
     if (!error) {
-      alert('打卡成功！');
+      alert('上班打卡成功！');
       fetchTodayLogs(staffUser.name);
+    } else {
+      alert('打卡失敗：' + error.message);
     }
   };
 
+  // F. 下班打卡
   const handleClockOut = async () => {
     const lastSession = logs.find(log => !log.clock_out_time);
     if (!lastSession) return;
+    
     const now = new Date();
-    const hours = (now - new Date(lastSession.clock_in_time)) / 36e5; // 毫秒轉小時
+    const startTime = new Date(lastSession.clock_in_time);
+    const hours = (now.getTime() - startTime.getTime()) / 3600000; // 毫秒轉小時
     
     const { error } = await supabase
       .from('attendance_logs')
-      .update({ clock_out_time: now, work_hours: hours.toFixed(2), status: 'completed' })
+      .update({ clock_out_time: now.toISOString(), work_hours: hours, status: 'completed' })
       .eq('id', lastSession.id);
 
     if (!error) {
       alert('下班成功！');
-      fetchTodayLogs(staffUser.name);
+      fetchTodayLogs(staffUser!.name);
     }
   };
 
-  // --- 畫面渲染 ---
-  if (status === 'loading') return <div className="flex h-screen items-center justify-center text-xl">LINE 登入中...</div>;
-  if (status === 'error') return <div className="flex h-screen items-center justify-center text-red-500">LIFF 初始化失敗 (請確認 LIFF ID)</div>;
+  // --- 畫面區 ---
 
-  // 綁定畫面
+  if (status === 'loading') return <div className="min-h-screen flex items-center justify-center text-xl font-bold text-gray-500">LINE 驗證中...</div>;
+  if (status === 'error') return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold">系統連線失敗 (請確認用 Line 開啟)</div>;
+
+  // 1. 綁定畫面
   if (status === 'bind_needed') {
     return (
-      <div className="flex flex-col h-screen items-center justify-center bg-gray-100 p-6">
-        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center">
-          <LinkIcon className="w-12 h-12 text-blue-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-4">歡迎初次使用v3.0</h2>
-          <p className="mb-6 text-gray-500">請選擇您的姓名進行綁定</p>
+      <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-6">
+        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
+          <LinkIcon className="w-16 h-16 text-blue-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">歡迎使用 (V4.0)</h2>
+          <p className="text-gray-500 mb-6">初次見面，請選擇您的姓名</p>
+          
           <select 
-            className="w-full p-3 border rounded-lg mb-6 bg-white text-black"
+            className="w-full p-4 border border-gray-300 rounded-xl mb-6 text-lg bg-white"
             value={selectedStaffId}
-            onChange={e => setSelectedStaffId(e.target.value)}
+            onChange={(e) => setSelectedStaffId(e.target.value)}
           >
             <option value="">-- 請選擇 --</option>
-            {unboundStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {unboundStaffList.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
           </select>
-          <button onClick={handleBind} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">確認綁定</button>
+
+          <button onClick={handleBind} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition">
+            確認綁定
+          </button>
         </div>
       </div>
     );
   }
 
-  // 打卡畫面 (已綁定)
+  // 2. 打卡畫面
   const isWorking = logs.length > 0 && !logs[0].clock_out_time;
-  
+
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <div className="bg-white p-6 rounded-b-3xl shadow-sm text-center">
-        <div className="text-4xl font-bold text-gray-800 mb-2">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-white p-6 pb-8 rounded-b-[2rem] shadow-sm text-center">
+        <h2 className="text-gray-400 text-sm font-bold mb-1">{new Date().toLocaleDateString()}</h2>
+        <div className="text-5xl font-bold text-slate-800 mb-4 font-mono">
           {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
         </div>
-        <div className="flex items-center justify-center gap-2 text-blue-600 font-bold bg-blue-50 py-1 px-3 rounded-full inline-block mx-auto">
-          <User size={16} /> {staffUser.name}
+        <div className="inline-flex items-center bg-blue-100 text-blue-800 px-4 py-1 rounded-full text-sm font-bold">
+          <User size={16} className="mr-2" />
+          {staffUser?.name}
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center p-6">
         {!isWorking ? (
-          <button onClick={handleClockIn} className="w-56 h-56 bg-green-500 rounded-full text-white shadow-xl flex flex-col items-center justify-center active:scale-95 transition">
-            <Clock size={48} className="mb-2" />
-            <span className="text-2xl font-bold">上班打卡</span>
+          <button onClick={handleClockIn} className="w-64 h-64 bg-green-500 rounded-full shadow-2xl border-8 border-green-100 flex flex-col items-center justify-center active:scale-95 transition">
+            <Clock size={56} className="text-white mb-2" />
+            <span className="text-3xl font-bold text-white">上班</span>
+            <span className="text-green-100 mt-1">Clock In</span>
           </button>
         ) : (
-          <button onClick={handleClockOut} className="w-56 h-56 bg-red-500 rounded-full text-white shadow-xl flex flex-col items-center justify-center active:scale-95 transition">
-            <LogOut size={48} className="mb-2" />
-            <span className="text-2xl font-bold">下班打卡</span>
+          <button onClick={handleClockOut} className="w-64 h-64 bg-red-500 rounded-full shadow-2xl border-8 border-red-100 flex flex-col items-center justify-center active:scale-95 transition">
+            <LogOut size={56} className="text-white mb-2" />
+            <span className="text-3xl font-bold text-white">下班</span>
+            <span className="text-red-100 mt-1">Clock Out</span>
           </button>
         )}
       </div>
 
-      <div className="p-6 bg-white">
-        <h3 className="font-bold text-gray-400 mb-2 text-sm">今日紀錄</h3>
-        {logs.map(log => (
-          <div key={log.id} className="flex justify-between py-3 border-b">
-            <div>
-              <span className="font-bold text-gray-800">
-                {new Date(log.clock_in_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-              </span>
-              {log.clock_out_time && (
-                <span className="text-gray-500"> - {new Date(log.clock_out_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-              )}
+      <div className="bg-white p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold text-gray-400 text-sm uppercase">今日紀錄</h3>
+          <button onClick={() => window.location.reload()} className="p-2 bg-gray-100 rounded-full">
+            <RefreshCw size={16} className="text-gray-500"/>
+          </button>
+        </div>
+        
+        <div className="space-y-3">
+          {logs.map(log => (
+            <div key={log.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <div>
+                <div className="font-bold text-slate-700 text-lg">
+                  {new Date(log.clock_in_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                  {' - '}
+                  {log.clock_out_time ? new Date(log.clock_out_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '...'}
+                </div>
+                <div className="text-xs text-gray-400">
+                  工時: {log.work_hours ? parseFloat(log.work_hours.toString()).toFixed(2) : '計時中'}
+                </div>
+              </div>
+              {log.clock_out_time ? <CheckCircle className="text-slate-300" /> : <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />}
             </div>
-            {log.clock_out_time ? <CheckCircle className="text-green-500" size={20} /> : <span className="text-green-600 text-xs font-bold bg-green-100 px-2 py-1 rounded">進行中</span>}
-          </div>
-        ))}
+          ))}
+          {logs.length === 0 && <div className="text-center text-gray-300 py-4">尚無紀錄</div>}
+        </div>
       </div>
     </div>
   );
