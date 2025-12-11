@@ -11,8 +11,8 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 const LIFF_ID = '2008669814-8OqQmkaL'; 
 
 // 🛑 診所座標 (請確認這是正確的座標)
-const CLINIC_LAT = 25.033964; 
-const CLINIC_LNG = 121.564472;
+const CLINIC_LAT = 25.00606566310205; 
+const CLINIC_LNG = 121.47745903743363;
 const ALLOWED_RADIUS = 150; 
 
 const supabase = createClient(supabaseUrl, supabaseKey);
