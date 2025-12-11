@@ -5,12 +5,12 @@ import { createClient } from '@supabase/supabase-js';
 import { ChevronLeft, ChevronRight, ShieldAlert, Filter } from 'lucide-react';
 
 // ==========================================
-// 🔧 設定區：上班時間定義 (想改時間請改這裡)
+// 🔧 修正：使用完整的 class 名稱，避免被 Tailwind 清除
 // ==========================================
 const SHIFT_CONFIG = {
-  M: { label: '早', color: 'orange', time: '08:00-12:30', hours: 4.5 },
-  A: { label: '午', color: 'blue',   time: '15:00-18:00', hours: 3.0 },
-  N: { label: '晚', color: 'purple', time: '18:00-21:00', hours: 3.0 },
+  M: { label: '早', activeClass: 'bg-orange-400', hoverClass: 'hover:bg-orange-200', time: '08:00-12:30', hours: 4.5 },
+  A: { label: '午', activeClass: 'bg-blue-400',   hoverClass: 'hover:bg-blue-200',   time: '15:00-18:00', hours: 3.0 },
+  N: { label: '晚', activeClass: 'bg-purple-400', hoverClass: 'hover:bg-purple-200', time: '18:00-21:00', hours: 3.0 },
 };
 
 // --- Supabase 設定 ---
@@ -31,11 +31,10 @@ export default function StaffRosterView() {
 
   useEffect(() => { fetchStaff(); fetchRoster(); }, [currentDate]);
 
-  // 1. 抓取員工 (排除主管與醫師)
+  // 1. 抓取員工
   const fetchStaff = async () => {
     const { data } = await supabase.from('staff').select('*').order('display_order');
     if (data) {
-      // 排除 醫師 和 主管
       const validStaff = data.filter((s: any) => s.role !== '醫師' && s.role !== '主管');
       // @ts-ignore
       setStaffList(validStaff);
@@ -58,7 +57,6 @@ export default function StaffRosterView() {
     
     const map: Record<string, Shift[]> = {};
     data?.forEach((r: any) => { 
-      // 嚴格過濾：只接受 M, A, N 字串，避免讀到醫師的物件資料導致崩潰
       if (Array.isArray(r.shifts)) {
         const validShifts = r.shifts.filter((s:any) => typeof s === 'string' && ['M','A','N'].includes(s));
         map[`${r.staff_id}_${r.date}`] = validShifts;
@@ -67,7 +65,7 @@ export default function StaffRosterView() {
     setRosterMap(map);
   };
 
-  // 3. 產生日期陣列 (強制使用本地時間字串)
+  // 3. 產生日期
   const getDaysInMonth = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -90,7 +88,7 @@ export default function StaffRosterView() {
     staffList.forEach(staff => {
       const staffErrors: string[] = [];
       const rule = staff.work_rule || 'normal';
-      if (rule === 'none') return; // 不適用
+      if (rule === 'none') return;
 
       let consecutiveDays = 0;
       let maxConsecutive = (rule === '4week') ? 12 : 6; 
@@ -99,11 +97,8 @@ export default function StaffRosterView() {
         const key = `${staff.id}_${day.dateStr}`;
         const shifts = rosterMap[key] || [];
 
-        if (shifts.length > 0) {
-          consecutiveDays++;
-        } else {
-          consecutiveDays = 0; 
-        }
+        if (shifts.length > 0) consecutiveDays++;
+        else consecutiveDays = 0; 
 
         if (consecutiveDays > maxConsecutive) {
           if (!staffErrors.includes(`連續工作超過 ${maxConsecutive} 天`)) {
@@ -143,11 +138,7 @@ export default function StaffRosterView() {
 
   const days = getDaysInMonth();
   const weekDays = ['日','一','二','三','四','五','六'];
-
-  // 職位篩選
-  const filteredStaff = selectedRole === 'all' 
-    ? staffList 
-    : staffList.filter(s => (s.role || '未分類') === selectedRole);
+  const filteredStaff = selectedRole === 'all' ? staffList : staffList.filter(s => (s.role || '未分類') === selectedRole);
 
   return (
     <div className="max-w-full overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-4 animate-fade-in">
@@ -169,7 +160,8 @@ export default function StaffRosterView() {
         <div className="flex gap-2 text-xs items-center">
           {Object.entries(SHIFT_CONFIG).map(([key, cfg]) => (
             <div key={key} className="flex items-center gap-1" title={cfg.time}>
-              <span className={`w-3 h-3 rounded-sm bg-${cfg.color}-400`}></span>
+              {/* 這裡我們用 inline style 作為最後的保險 */}
+              <span className={`w-3 h-3 rounded-sm ${cfg.activeClass}`}></span>
               {cfg.label} ({cfg.time})
             </div>
           ))}
@@ -216,10 +208,12 @@ export default function StaffRosterView() {
                       {(['M','A','N'] as Shift[]).map(s => {
                         const isActive = shifts.includes(s);
                         // @ts-ignore
-                        const color = SHIFT_CONFIG[s].color;
+                        const cfg = SHIFT_CONFIG[s];
                         return (
-                          <button key={s} onClick={() => toggleShift(staff.id, d.dateStr, s)} 
-                            className={`h-2.5 w-full rounded-[2px] transition ${isActive ? `bg-${color}-400` : `bg-slate-100 hover:bg-${color}-200`}`}
+                          <button 
+                            key={s} 
+                            onClick={() => toggleShift(staff.id, d.dateStr, s)} 
+                            className={`h-2.5 w-full rounded-[2px] transition ${isActive ? cfg.activeClass : `bg-slate-100 ${cfg.hoverClass}`}`}
                           />
                         );
                       })}
