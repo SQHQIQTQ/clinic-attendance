@@ -2,12 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Download, Calendar, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus } from 'lucide-react';
+import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Key } from 'lucide-react';
 
-// --- Supabase 設定 ---
+// --- 設定區 ---
 const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// 🛑 設定你的後台密碼
+const ADMIN_PASSCODE = "1007"; 
 
 type Log = {
   id: number;
@@ -20,7 +23,6 @@ type Log = {
   is_bypass?: boolean;
 };
 
-// 用來匯出的資料結構
 type DailyReport = {
   date: string;
   weekday: string;
@@ -33,11 +35,16 @@ type DailyReport = {
 };
 
 export default function AdminPage() {
+  // --- 權限狀態 ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [inputPasscode, setInputPasscode] = useState('');
+  
+  // --- 資料狀態 ---
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   
-  // 編輯模式狀態
+  // --- 編輯狀態 ---
   const [editingLog, setEditingLog] = useState<Log | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [tempDate, setTempDate] = useState('');
@@ -45,7 +52,19 @@ export default function AdminPage() {
   const [tempOutTime, setTempOutTime] = useState('');
   const [tempName, setTempName] = useState('');
 
-  // 1. 抓取資料
+  // 1. 驗證密碼
+  const handleLogin = () => {
+    if (inputPasscode === ADMIN_PASSCODE) {
+      setIsAuthenticated(true);
+      // 登入成功後才去抓資料
+      setTimeout(() => fetchLogs(), 100); 
+    } else {
+      alert('密碼錯誤');
+      setInputPasscode('');
+    }
+  };
+
+  // 2. 抓取資料
   const fetchLogs = async () => {
     setLoading(true);
     const startDate = `${selectedMonth}-01T00:00:00`;
@@ -65,9 +84,12 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchLogs(); }, [selectedMonth]);
+  // 只有在登入狀態且月份改變時才重抓
+  useEffect(() => { 
+    if(isAuthenticated) fetchLogs(); 
+  }, [selectedMonth]);
 
-  // 2. 每日統計與匯出邏輯 (維持原本的勞基法計算)
+  // 3. 匯出邏輯 (勞基法)
   const calculateDailyStats = (): DailyReport[] => {
     const dailyMap: Record<string, number> = {}; 
     const statusMap: Record<string, string> = {}; 
@@ -129,12 +151,15 @@ export default function AdminPage() {
 
   // --- CRUD 功能區 ---
 
-  // 開啟編輯視窗
+  // 開啟編輯視窗 (修復 Bug 的關鍵在這裡)
   const openEdit = (log: Log) => {
     setEditingLog(log);
+    // 🔧 Bug修復：打開編輯時，把名字也填進暫存變數
+    setTempName(log.staff_name);
+    
     const dateObj = new Date(log.clock_in_time);
-    setTempDate(dateObj.toISOString().split('T')[0]); // YYYY-MM-DD
-    setTempInTime(dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })); // HH:mm
+    setTempDate(dateObj.toISOString().split('T')[0]); 
+    setTempInTime(dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })); 
     
     if (log.clock_out_time) {
       setTempOutTime(new Date(log.clock_out_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
@@ -151,18 +176,17 @@ export default function AdminPage() {
     else fetchLogs();
   };
 
-  // 執行儲存 (編輯/新增)
+  // 執行儲存
   const handleSave = async () => {
-    if (!tempDate || !tempInTime || !tempName) return alert('請填寫完整資訊');
+    // 因為 openEdit 有填入 tempName，這裡就不會擋住了
+    if (!tempDate || !tempInTime || !tempName) return alert('請填寫完整資訊 (姓名/日期/時間)');
 
-    // 1. 組合日期時間字串 (ISO format)
     const inDateTime = new Date(`${tempDate}T${tempInTime}:00`);
     let outDateTime: Date | null = null;
     let workHours = 0;
 
     if (tempOutTime) {
       outDateTime = new Date(`${tempDate}T${tempOutTime}:00`);
-      // 處理跨夜：如果下班時間比上班時間早，假設是隔天
       if (outDateTime < inDateTime) {
         outDateTime.setDate(outDateTime.getDate() + 1);
       }
@@ -170,18 +194,16 @@ export default function AdminPage() {
     }
 
     if (isCreating) {
-      // 新增模式
       const { error } = await supabase.from('attendance_logs').insert([{
         staff_name: tempName,
         clock_in_time: inDateTime.toISOString(),
         clock_out_time: outDateTime ? outDateTime.toISOString() : null,
         work_hours: outDateTime ? workHours : null,
         status: outDateTime ? 'completed' : 'working',
-        is_bypass: true // 手動補登視為異常/特殊紀錄
+        is_bypass: true 
       }]);
       if (error) alert('新增失敗:' + error.message);
     } else if (editingLog) {
-      // 編輯模式
       const { error } = await supabase.from('attendance_logs').update({
         clock_in_time: inDateTime.toISOString(),
         clock_out_time: outDateTime ? outDateTime.toISOString() : null,
@@ -191,13 +213,11 @@ export default function AdminPage() {
       if (error) alert('更新失敗:' + error.message);
     }
 
-    // 關閉視窗並重整
     setEditingLog(null);
     setIsCreating(false);
     fetchLogs();
   };
 
-  // 開啟新增視窗
   const openCreate = () => {
     setIsCreating(true);
     setEditingLog(null);
@@ -208,11 +228,43 @@ export default function AdminPage() {
     setTempName('');
   };
 
+  // --- 畫面渲染：未登入 vs 已登入 ---
+
+  // 🔒 未登入畫面 (鎖定)
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
+          <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-8 h-8 text-slate-500" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">管理員登入</h2>
+          <p className="text-slate-500 text-sm mb-6">請輸入後台通行碼</p>
+          
+          <input 
+            type="password" 
+            placeholder="Passcode"
+            className="w-full p-3 border rounded-xl text-center text-lg tracking-widest mb-4 outline-none focus:ring-2 focus:ring-blue-500"
+            value={inputPasscode}
+            onChange={(e) => setInputPasscode(e.target.value)}
+          />
+          <button 
+            onClick={handleLogin}
+            className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition"
+          >
+            解鎖
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 🔓 已登入畫面 (正常後台)
   return (
     <div className="min-h-screen bg-slate-50 p-6 text-slate-800">
       <div className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">坤暉診所考勤管理後台</h1>
+          <h1 className="text-2xl font-bold text-slate-900">診所考勤管理後台</h1>
           <p className="text-slate-500 text-sm">檢視、修改、補登員工打卡紀錄</p>
         </div>
         
@@ -227,23 +279,16 @@ export default function AdminPage() {
           
           <div className="w-[1px] bg-slate-200 mx-1"></div>
 
-          <button 
-            onClick={openCreate}
-            className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition font-bold text-sm"
-          >
+          <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition font-bold text-sm">
             <Plus size={16} /> 補登
           </button>
 
-          <button 
-            onClick={handleExport}
-            className="flex items-center gap-2 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-sm"
-          >
+          <button onClick={handleExport} className="flex items-center gap-2 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition font-bold text-sm">
             <Download size={16} /> 匯出報表
           </button>
         </div>
       </div>
 
-      {/* 列表區 */}
       <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-200">
         <div className="overflow-x-auto max-h-[600px]">
           <table className="w-full text-left">
@@ -284,7 +329,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* 編輯/補登 Modal */}
       {(editingLog || isCreating) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-fade-in">
