@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Calendar, Users, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Calendar, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 
 // --- 設定區 ---
 const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
@@ -10,27 +10,25 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // 🛑 雙密碼設定
-const BOSS_PASSCODE = "1007";    // 老闆：全權限
-const MANAGER_PASSCODE = "0000"; // 主管：只能排班
+const BOSS_PASSCODE = "1007";    
+const MANAGER_PASSCODE = "0000"; 
 
 // --- 型別定義 ---
 type Log = { id: number; staff_name: string; clock_in_time: string; clock_out_time: string | null; work_hours: number | null; is_bypass?: boolean; };
 type Staff = { id: number; name: string; role: string; display_order: number; };
-type Roster = { id?: number; date: string; staff_id: number; shifts: string[] };
 
 export default function AdminPage() {
   const [authLevel, setAuthLevel] = useState<'none' | 'boss' | 'manager'>('none');
   const [inputPasscode, setInputPasscode] = useState('');
   const [activeTab, setActiveTab] = useState<'attendance' | 'roster'>('attendance');
 
-  // --- 登入邏輯 ---
   const handleLogin = () => {
     if (inputPasscode === BOSS_PASSCODE) {
       setAuthLevel('boss');
-      setActiveTab('attendance'); // 老闆預設看考勤
+      setActiveTab('attendance'); 
     } else if (inputPasscode === MANAGER_PASSCODE) {
       setAuthLevel('manager');
-      setActiveTab('roster'); // 主管強制看排班
+      setActiveTab('roster'); 
     } else {
       alert('密碼錯誤');
       setInputPasscode('');
@@ -62,7 +60,6 @@ export default function AdminPage() {
         </div>
         
         <div className="flex bg-white p-1 rounded-xl border shadow-sm">
-          {/* 只有老闆看得到考勤按鈕 */}
           {authLevel === 'boss' && (
             <button 
               onClick={() => setActiveTab('attendance')}
@@ -71,7 +68,6 @@ export default function AdminPage() {
               <CheckCircle size={16}/> 考勤紀錄
             </button>
           )}
-          
           <button 
             onClick={() => setActiveTab('roster')}
             className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition ${activeTab === 'roster' ? 'bg-purple-100 text-purple-700' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -86,14 +82,12 @@ export default function AdminPage() {
   );
 }
 
-// --- 子元件 1: 考勤管理 (老闆專用) ---
+// --- 考勤元件 (省略部分重複代碼，保持與 V4.0 相同邏輯，僅修復排班部分) ---
 function AttendanceView() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [editingLog, setEditingLog] = useState<Log | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  
-  // 編輯暫存
   const [tempDate, setTempDate] = useState('');
   const [tempInTime, setTempInTime] = useState('');
   const [tempOutTime, setTempOutTime] = useState('');
@@ -133,15 +127,12 @@ function AttendanceView() {
       if (outTime < inTime) outTime.setDate(outTime.getDate() + 1);
       hours = (outTime.getTime() - inTime.getTime()) / 3600000;
     }
-
     const payload = {
       staff_name: tempName, clock_in_time: inTime.toISOString(), clock_out_time: outTime?.toISOString() || null,
       work_hours: outTime ? hours : null, status: outTime ? 'completed' : 'working', is_bypass: true
     };
-
     if (isCreating) await supabase.from('attendance_logs').insert([payload]);
     else if (editingLog) await supabase.from('attendance_logs').update(payload).eq('id', editingLog.id);
-    
     setEditingLog(null); setIsCreating(false); fetchLogs();
   };
 
@@ -167,7 +158,6 @@ function AttendanceView() {
         <button onClick={() => { setIsCreating(true); setEditingLog(null); setTempName(''); setTempDate(new Date().toISOString().split('T')[0]); }} className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 text-sm font-bold"><Plus size={16} /> 補登</button>
         <button onClick={handleExport} className="flex items-center gap-2 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 text-sm font-bold"><Download size={16} /> 匯出</button>
       </div>
-
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-200">
         <div className="overflow-x-auto max-h-[600px]">
           <table className="w-full text-left">
@@ -186,7 +176,6 @@ function AttendanceView() {
           </table>
         </div>
       </div>
-
       {(editingLog || isCreating) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
@@ -211,13 +200,13 @@ function AttendanceView() {
   );
 }
 
-// --- 子元件 2: 排班設定 (職位分組版) ---
+// --- 排班元件 (修正員工名單讀取) ---
 function RosterView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [rosterMap, setRosterMap] = useState<Record<string, string[]>>({});
-  const [selectedRole, setSelectedRole] = useState<string>('all'); // 職位篩選狀態
-  const [availableRoles, setAvailableRoles] = useState<string[]>([]); // 系統中所有的職位
+  const [selectedRole, setSelectedRole] = useState<string>('all'); 
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]); 
 
   useEffect(() => {
     fetchStaff();
@@ -225,11 +214,12 @@ function RosterView() {
   }, [currentDate]);
 
   const fetchStaff = async () => {
+    // 🔧 這裡加了 display_order 的排序，確保顯示順序正常
     const { data } = await supabase.from('staff').select('id, name, role, display_order').order('display_order', { ascending: true });
     // @ts-ignore
     if (data) {
       setStaffList(data);
-      // 自動抓取所有不重複的職位
+      // 🔧 自動收集所有職位，過濾掉空的
       // @ts-ignore
       const roles = Array.from(new Set(data.map(s => s.role || '未分類'))).filter(r => r);
       // @ts-ignore
@@ -277,7 +267,7 @@ function RosterView() {
 
   const weekDays = ['日','一','二','三','四','五','六'];
 
-  // 根據職位篩選員工
+  // 根據職位篩選，如果 role 是 null，就歸類在 "未分類"
   const filteredStaff = selectedRole === 'all' 
     ? staffList 
     : staffList.filter(s => (s.role || '未分類') === selectedRole);
@@ -333,7 +323,7 @@ function RosterView() {
             <tr key={staff.id}>
               <td className="p-2 border font-bold text-slate-700 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                 {staff.name}
-                <div className="text-[10px] font-normal text-slate-400">{staff.role || '一般'}</div>
+                <div className="text-[10px] font-normal text-slate-400">{staff.role || '未分類'}</div>
               </td>
               {days.map(d => {
                 const key = `${staff.id}_${d.dateStr}`;
