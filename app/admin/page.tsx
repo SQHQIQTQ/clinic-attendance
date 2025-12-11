@@ -1,20 +1,35 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CheckCircle, Calendar, Stethoscope, BookOpen, Lock } from 'lucide-react';
-// 匯入所有獨立元件
+import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Calendar, Stethoscope, BookOpen } from 'lucide-react';
+
+// 引入外部元件 (請確保這些檔案都存在 app/admin/ 資料夾下)
 import StaffRosterView from './StaffRoster';
 import DoctorRosterView from './DoctorRoster';
-import LaborRulesView from './LaborRules'; // 🟢 新增這個
+import LaborRulesView from './LaborRules';
 
 // --- 設定區 ---
+const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 const BOSS_PASSCODE = "1007";    
 const MANAGER_PASSCODE = "0000"; 
+
+// --- 型別定義 ---
+type Log = { id: number; staff_name: string; clock_in_time: string; clock_out_time: string | null; work_hours: number | null; is_bypass?: boolean; };
 
 export default function AdminPage() {
   const [authLevel, setAuthLevel] = useState<'none' | 'boss' | 'manager'>('none');
   const [inputPasscode, setInputPasscode] = useState('');
   const [activeTab, setActiveTab] = useState<'attendance' | 'staff_roster' | 'doctor_roster' | 'labor_rules'>('attendance');
+  const [isClient, setIsClient] = useState(false);
+
+  // 1. 防止 Hydration Error (關鍵修復)
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const handleLogin = () => {
     if (inputPasscode === BOSS_PASSCODE) {
@@ -28,6 +43,9 @@ export default function AdminPage() {
       setInputPasscode('');
     }
   };
+
+  // 如果還沒載入完成，顯示空白，避免報錯
+  if (!isClient) return null;
 
   if (authLevel === 'none') {
     return (
@@ -46,7 +64,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800">
       <div className="max-w-[1600px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          診所管理中樞 V6.5
+          診所管理中樞 V6.6
           {authLevel === 'manager' && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">排班模式</span>}
         </h1>
         
@@ -62,7 +80,6 @@ export default function AdminPage() {
               <button onClick={() => setActiveTab('doctor_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'doctor_roster' ? 'bg-teal-100 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
                 <Stethoscope size={16}/> 醫師排班
               </button>
-              {/* 🟢 新增法規查詢按鈕 */}
               <button onClick={() => setActiveTab('labor_rules')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'labor_rules' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
                 <BookOpen size={16}/> 法規查詢
               </button>
@@ -78,18 +95,23 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'attendance' && authLevel === 'boss' && <AttendanceView />}
+      
+      {/* 引用外部元件 */}
       {activeTab === 'staff_roster' && <StaffRosterView />}
       {activeTab === 'doctor_roster' && authLevel === 'boss' && <DoctorRosterView />}
-      {/* 🟢 顯示法規頁面 */}
       {activeTab === 'labor_rules' && authLevel === 'boss' && <LaborRulesView />}
     </div>
   );
 }
 
-// 考勤元件 (保持不變)
+// ==================================================================================
+// 🟢 考勤紀錄 (AttendanceView) - 完整修復版
+// ==================================================================================
 function AttendanceView() {
   const [logs, setLogs] = useState<Log[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  // 🔧 修復：初始值設為空字串，等到 useEffect 再填入日期，避免 Client/Server 不一致
+  const [selectedMonth, setSelectedMonth] = useState(''); 
+  
   const [editingLog, setEditingLog] = useState<Log | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [tempDate, setTempDate] = useState('');
@@ -97,10 +119,20 @@ function AttendanceView() {
   const [tempOutTime, setTempOutTime] = useState('');
   const [tempName, setTempName] = useState('');
 
+  // 1. 初始化月份 (Client Only)
+  useEffect(() => {
+    setSelectedMonth(new Date().toISOString().slice(0, 7));
+  }, []);
+
+  // 2. 抓取資料
   const fetchLogs = async () => {
+    if (!selectedMonth) return; // 如果月份還沒設定好，不抓
     const startDate = `${selectedMonth}-01T00:00:00`;
     const [y, m] = selectedMonth.split('-').map(Number);
-    const nextMonth = new Date(y, m, 1).toISOString();
+    // 計算下個月 (處理跨年)
+    const nextMonthDate = new Date(y, m, 1);
+    const nextMonth = nextMonthDate.toISOString();
+
     const { data } = await supabase.from('attendance_logs').select('*').gte('clock_in_time', startDate).lt('clock_in_time', nextMonth).order('clock_in_time', { ascending: false });
     // @ts-ignore
     setLogs(data || []);
@@ -117,8 +149,9 @@ function AttendanceView() {
     setTempName(log.staff_name);
     const d = new Date(log.clock_in_time);
     setTempDate(d.toISOString().split('T')[0]);
-    setTempInTime(d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
-    setTempOutTime(log.clock_out_time ? new Date(log.clock_out_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
+    // 修正時間格式，確保補0
+    setTempInTime(d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }));
+    setTempOutTime(log.clock_out_time ? new Date(log.clock_out_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '');
   };
 
   const handleSave = async () => {
