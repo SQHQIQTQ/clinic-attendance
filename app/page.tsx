@@ -10,15 +10,15 @@ const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
 const LIFF_ID = '2008669814-8OqQmkaL'; 
 
-// 🛑【請修改這裡】診所的座標 (Google Map 右鍵取得)
-const CLINIC_LAT = 25.00587314548561; 
-const CLINIC_LNG = 121.47738450872981; 
-const ALLOWED_RADIUS = 150; // 允許半徑 (公尺)，建議 100-150
+// 🛑 診所座標 (請再次確認這裡的座標)
+const CLINIC_LAT = 25.033964; 
+const CLINIC_LNG = 121.564472;
+const ALLOWED_RADIUS = 150; 
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-type Staff = { id: number; name: string; line_user_id: string | null; role: string; }; // 增加 role
-type Log = { id: number; clock_in_time: string; clock_out_time: string | null; work_hours: number | null; };
+type Staff = { id: number; name: string; line_user_id: string | null; role: string; };
+type Log = { id: number; clock_in_time: string; clock_out_time: string | null; work_hours: number | null; is_bypass?: boolean; };
 
 export default function ClinicAttendance() {
   const [status, setStatus] = useState<string>('loading'); 
@@ -28,9 +28,9 @@ export default function ClinicAttendance() {
   const [logs, setLogs] = useState<Log[]>([]);
   
   // GPS 狀態
-  const [gpsStatus, setGpsStatus] = useState<string>(''); // 'locating', 'ok', 'out_of_range', 'error'
+  const [gpsStatus, setGpsStatus] = useState<string>('');
   const [currentDist, setCurrentDist] = useState<number>(0);
-  const [bypassMode, setBypassMode] = useState(false); // 是否開啟救援模式
+  const [bypassMode, setBypassMode] = useState(false);
 
   useEffect(() => {
     const initSystem = async () => {
@@ -48,7 +48,6 @@ export default function ClinicAttendance() {
   }, []);
 
   const checkBinding = async (lineUserId: string) => {
-    // 記得要把 role 也抓出來
     const { data } = await supabase.from('staff').select('*').eq('line_user_id', lineUserId).single();
     if (data) {
       setStaffUser(data);
@@ -76,40 +75,27 @@ export default function ClinicAttendance() {
     setLogs(data || []);
   };
 
-  // --- GPS 計算核心 ---
   const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    var R = 6371; // Radius of the earth in km
+    var R = 6371; 
     var dLat = deg2rad(lat2-lat1);  
     var dLon = deg2rad(lon2-lon1); 
-    var a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
     var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    var d = R * c * 1000; // Distance in meters
-    return d;
+    return R * c * 1000;
   }
   const deg2rad = (deg: number) => deg * (Math.PI/180);
 
-  // 執行打卡動作 (包含 GPS 檢查)
   const executeClockAction = async (action: 'in' | 'out') => {
     if (!staffUser) return;
 
-    // 1. VIP 豁免檢查
+    // 🔧 這裡改成中文判斷，確保與資料庫一致
     const isVip = staffUser.role === '醫師' || staffUser.role === '主管';
     
-    // 如果是 VIP，直接通過
-    if (isVip) {
-      await submitToDatabase(action, null, null, false);
+    if (isVip || bypassMode) {
+      await submitToDatabase(action, null, null, bypassMode);
       return;
     }
 
-    // 如果開啟了救援模式 (手動報備)，也直接通過，但標記 bypass
-    if (bypassMode) {
-      await submitToDatabase(action, null, null, true);
-      return;
-    }
-
-    // 2. 一般員工：檢查 GPS
     setGpsStatus('locating');
     if (!navigator.geolocation) {
       alert('您的手機不支援或未開啟 GPS');
@@ -122,15 +108,12 @@ export default function ClinicAttendance() {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         const dist = getDistanceFromLatLonInM(lat, lng, CLINIC_LAT, CLINIC_LNG);
-        
         setCurrentDist(Math.round(dist));
 
         if (dist <= ALLOWED_RADIUS) {
-          // 距離內，允許打卡
           await submitToDatabase(action, lat, lng, false);
           setGpsStatus('ok');
         } else {
-          // 距離太遠
           setGpsStatus('out_of_range');
           alert(`距離診所太遠 (${Math.round(dist)}公尺)。請在診所內打卡，或使用救援模式。`);
         }
@@ -144,16 +127,10 @@ export default function ClinicAttendance() {
     );
   };
 
-  // 寫入資料庫
   const submitToDatabase = async (action: 'in' | 'out', lat: number | null, lng: number | null, isBypass: boolean) => {
     if (action === 'in') {
       const { error } = await supabase.from('attendance_logs').insert([{ 
-        staff_name: staffUser!.name, 
-        clock_in_time: new Date(), 
-        status: 'working',
-        gps_lat: lat,
-        gps_lng: lng,
-        is_bypass: isBypass
+        staff_name: staffUser!.name, clock_in_time: new Date(), status: 'working', gps_lat: lat, gps_lng: lng, is_bypass: isBypass
       }]);
       if (!error) { alert(isBypass ? '救援打卡成功 (已記錄異常)' : '上班打卡成功！'); fetchTodayLogs(staffUser!.name); }
       else alert('失敗:' + error.message);
@@ -164,29 +141,23 @@ export default function ClinicAttendance() {
       const hours = (now.getTime() - new Date(lastSession.clock_in_time).getTime()) / 3600000;
       
       const { error } = await supabase.from('attendance_logs').update({ 
-        clock_out_time: now.toISOString(), 
-        work_hours: hours, 
-        status: 'completed',
-        gps_lat: lat,
-        gps_lng: lng,
-        is_bypass: isBypass
+        clock_out_time: now.toISOString(), work_hours: hours, status: 'completed', gps_lat: lat, gps_lng: lng, is_bypass: isBypass
       }).eq('id', lastSession.id);
 
       if (!error) { alert(isBypass ? '救援下班成功 (已記錄異常)' : '下班成功！'); fetchTodayLogs(staffUser!.name); }
     }
-    // 重置狀態
     setGpsStatus('');
     setBypassMode(false);
   };
 
   // --- 畫面 ---
   if (status === 'loading') return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">LINE 驗證中...</div>;
-  if (status === 'error') return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold text-center p-4">系統連線失敗 (V7.0 GPS)<br/><span className="text-xs text-gray-400">請確認使用 LINE 開啟</span></div>;
+  if (status === 'error') return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold text-center p-4">系統連線失敗<br/><span className="text-xs text-gray-400">請確認使用 LINE 開啟</span></div>;
   if (status === 'bind_needed') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
         <LinkIcon className="w-16 h-16 text-blue-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold mb-2 text-gray-800">歡迎使用 (V7.0 GPS)</h2>
+        <h2 className="text-2xl font-bold mb-2 text-gray-800">歡迎使用 (V8.0)</h2>
         <p className="text-gray-500 mb-6">初次見面，請選擇您的姓名</p>
         <select className="w-full p-4 border rounded-xl mb-6 text-lg bg-white" value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)}>
           <option value="">-- 請選擇您的姓名 --</option>
@@ -198,7 +169,8 @@ export default function ClinicAttendance() {
   );
 
   const isWorking = logs.length > 0 && !logs[0].clock_out_time;
-  const isVip = staffUser?.role === 'doctor' || staffUser?.role === 'manager';
+  // 🔧 中文 VIP 判斷
+  const isVip = staffUser?.role === '醫師' || staffUser?.role === '主管';
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col">
@@ -227,7 +199,6 @@ export default function ClinicAttendance() {
           </button>
         )}
 
-        {/* 救援模式切換：只有當非 VIP 且沒在打卡時顯示，或是定位失敗時 */}
         {!isVip && (
           <div className="mt-8">
             {!bypassMode ? (
