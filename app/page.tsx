@@ -95,7 +95,7 @@ export default function ClinicAttendance() {
     if (!staffUser) return;
 
     // 1. VIP 豁免檢查
-    const isVip = staffUser.role === 'doctor' || staffUser.role === 'manager';
+    const isVip = staffUser.role === '醫師' || staffUser.role === '主管';
     
     // 如果是 VIP，直接通過
     if (isVip) {
