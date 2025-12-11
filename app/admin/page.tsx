@@ -53,7 +53,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800">
       <div className="max-w-[1600px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          診所管理中樞 V6.2
+          診所管理中樞 V6.3
           {authLevel === 'manager' && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">排班模式</span>}
         </h1>
         
@@ -81,7 +81,9 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'attendance' && authLevel === 'boss' && <AttendanceView />}
+      
       {activeTab === 'staff_roster' && <StaffRosterView />}
+      
       {activeTab === 'doctor_roster' && authLevel === 'boss' && <DoctorRosterView />}
     </div>
   );
@@ -202,7 +204,7 @@ function AttendanceView() {
   );
 }
 
-// 醫師排班
+// 醫師排班 (強力修復版)
 function DoctorRosterView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [doctors, setDoctors] = useState<Staff[]>([]);
@@ -230,14 +232,11 @@ function DoctorRosterView() {
     const map: Record<string, DoctorShift[]> = {};
     
     data?.forEach((r: any) => {
-      if(doctors.find(d => d.id === r.staff_id)) {
-        // 🔧 防呆檢查：只讀取格式正確的資料
-        if (Array.isArray(r.shifts)) {
-          const validShifts = r.shifts.filter((s: any) => typeof s === 'object' && s.start && s.end);
-          map[`${r.staff_id}_${r.date}`] = validShifts;
-        } else {
-          map[`${r.staff_id}_${r.date}`] = [];
-        }
+      // 🔧 強力過濾：只接受格式正確的物件陣列 (有 start 和 end 屬性)
+      // 如果遇到以前的 "M", "A" 字串，filter 會自動過濾掉，不會崩潰
+      if (Array.isArray(r.shifts)) {
+        const validShifts = r.shifts.filter((s: any) => typeof s === 'object' && s.start && s.end);
+        map[`${r.staff_id}_${r.date}`] = validShifts;
       }
     });
     setRosterMap(map);
