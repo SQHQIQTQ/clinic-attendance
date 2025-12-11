@@ -82,7 +82,7 @@ export default function AdminPage() {
   );
 }
 
-// --- 考勤元件 (省略部分重複代碼，保持與 V4.0 相同邏輯，僅修復排班部分) ---
+// --- 考勤元件 ---
 function AttendanceView() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -200,7 +200,7 @@ function AttendanceView() {
   );
 }
 
-// --- 排班元件 (修正員工名單讀取) ---
+// --- 排班元件 (修正抓不到人的問題) ---
 function RosterView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -214,16 +214,36 @@ function RosterView() {
   }, [currentDate]);
 
   const fetchStaff = async () => {
-    // 🔧 這裡加了 display_order 的排序，確保顯示順序正常
-    const { data } = await supabase.from('staff').select('id, name, role, display_order').order('display_order', { ascending: true });
-    // @ts-ignore
-    if (data) {
-      setStaffList(data);
-      // 🔧 自動收集所有職位，過濾掉空的
-      // @ts-ignore
-      const roles = Array.from(new Set(data.map(s => s.role || '未分類'))).filter(r => r);
-      // @ts-ignore
-      setAvailableRoles(roles);
+    // 🔧 這裡加了 try-catch 和錯誤提示，方便除錯
+    try {
+      // 嘗試讀取，如果不指定欄位，預設會讀全部
+      const { data, error } = await supabase
+        .from('staff')
+        .select('*')
+        .order('id', { ascending: true }); // 先照 ID 排，保險一點
+
+      if (error) {
+        alert('讀取員工資料失敗: ' + error.message);
+        return;
+      }
+
+      if (data) {
+        // 🔧 過濾掉「主管」，不顯示在排班表
+        // 🔧 確保 role 不是 null，如果是 null 給 '未分類'
+        const validStaff = data
+          .filter(s => s.role !== '主管') 
+          .map(s => ({ ...s, role: s.role?.trim() || '未分類' }));
+
+        setStaffList(validStaff);
+
+        // 自動收集職位 (去重複)
+        // @ts-ignore
+        const roles = Array.from(new Set(validStaff.map(s => s.role))).filter(r => r);
+        // @ts-ignore
+        setAvailableRoles(roles);
+      }
+    } catch (err: any) {
+      alert('發生未知錯誤: ' + err.message);
     }
   };
 
@@ -267,10 +287,9 @@ function RosterView() {
 
   const weekDays = ['日','一','二','三','四','五','六'];
 
-  // 根據職位篩選，如果 role 是 null，就歸類在 "未分類"
   const filteredStaff = selectedRole === 'all' 
     ? staffList 
-    : staffList.filter(s => (s.role || '未分類') === selectedRole);
+    : staffList.filter(s => s.role === selectedRole);
 
   return (
     <div className="max-w-full overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-4 animate-fade-in">
@@ -323,7 +342,7 @@ function RosterView() {
             <tr key={staff.id}>
               <td className="p-2 border font-bold text-slate-700 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                 {staff.name}
-                <div className="text-[10px] font-normal text-slate-400">{staff.role || '未分類'}</div>
+                <div className="text-[10px] font-normal text-slate-400">{staff.role}</div>
               </td>
               {days.map(d => {
                 const key = `${staff.id}_${d.dateStr}`;
@@ -342,6 +361,12 @@ function RosterView() {
           ))}
         </tbody>
       </table>
+      
+      {filteredStaff.length === 0 && (
+        <div className="text-center p-10 text-slate-400">
+          找不到符合條件的員工，請確認資料庫 staff 表格的 role 欄位已填寫。
+        </div>
+      )}
     </div>
   );
 }
