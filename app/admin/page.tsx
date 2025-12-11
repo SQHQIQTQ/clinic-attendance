@@ -1,27 +1,20 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Calendar, Stethoscope } from 'lucide-react';
-// 匯入兩個獨立的排班元件
+import React, { useState } from 'react';
+import { CheckCircle, Calendar, Stethoscope, BookOpen, Lock } from 'lucide-react';
+// 匯入所有獨立元件
 import StaffRosterView from './StaffRoster';
-import DoctorRosterView from './DoctorRoster'; // 🟢 新增這個
+import DoctorRosterView from './DoctorRoster';
+import LaborRulesView from './LaborRules'; // 🟢 新增這個
 
 // --- 設定區 ---
-const supabaseUrl = 'https://ucpkvptnhgbtmghqgbof.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjcGt2cHRuaGdidG1naHFnYm9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNDg5MTAsImV4cCI6MjA4MDkyNDkxMH0.zdLx86ey-QywuGD-S20JJa7ZD6xHFRalAMRN659bbuo';
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 const BOSS_PASSCODE = "1007";    
 const MANAGER_PASSCODE = "0000"; 
-
-// --- 型別定義 ---
-type Log = { id: number; staff_name: string; clock_in_time: string; clock_out_time: string | null; work_hours: number | null; is_bypass?: boolean; };
 
 export default function AdminPage() {
   const [authLevel, setAuthLevel] = useState<'none' | 'boss' | 'manager'>('none');
   const [inputPasscode, setInputPasscode] = useState('');
-  const [activeTab, setActiveTab] = useState<'attendance' | 'staff_roster' | 'doctor_roster'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'staff_roster' | 'doctor_roster' | 'labor_rules'>('attendance');
 
   const handleLogin = () => {
     if (inputPasscode === BOSS_PASSCODE) {
@@ -53,7 +46,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800">
       <div className="max-w-[1600px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          診所管理中樞 V6.4
+          診所管理中樞 V6.5
           {authLevel === 'manager' && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">排班模式</span>}
         </h1>
         
@@ -69,6 +62,10 @@ export default function AdminPage() {
               <button onClick={() => setActiveTab('doctor_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'doctor_roster' ? 'bg-teal-100 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
                 <Stethoscope size={16}/> 醫師排班
               </button>
+              {/* 🟢 新增法規查詢按鈕 */}
+              <button onClick={() => setActiveTab('labor_rules')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'labor_rules' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                <BookOpen size={16}/> 法規查詢
+              </button>
             </>
           )}
           
@@ -81,11 +78,10 @@ export default function AdminPage() {
       </div>
 
       {activeTab === 'attendance' && authLevel === 'boss' && <AttendanceView />}
-      
       {activeTab === 'staff_roster' && <StaffRosterView />}
-      
-      {/* 🟢 醫師排班改用這個獨立元件，防崩潰 */}
       {activeTab === 'doctor_roster' && authLevel === 'boss' && <DoctorRosterView />}
+      {/* 🟢 顯示法規頁面 */}
+      {activeTab === 'labor_rules' && authLevel === 'boss' && <LaborRulesView />}
     </div>
   );
 }
