@@ -2,41 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 這裡我們定義一套強制性的配色，不受電腦系統影響 */
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+  /* 文字顏色：深岩灰 (接近黑，但比純黑柔和) */
+  --foreground-rgb: 15, 23, 42; 
+  /* 背景顏色：極淺灰 (比純白不刺眼) */
+  --background-start-rgb: 248, 250, 252; 
+  --background-end-rgb: 248, 250, 252;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: rgb(var(--background-end-rgb));
+  /* 強制設定基本字體顏色，防止瀏覽器自作聰明 */
+  @apply text-slate-900 bg-slate-50;
 }
 
-@keyframes slide-up {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+/* 一些簡單的動畫效果，讓切換頁面時比較順暢 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out;
 }
