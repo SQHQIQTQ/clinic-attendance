@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Download, CheckCircle, AlertCircle, RefreshCw, Edit, Trash2, X, Save, Plus, Lock, Calendar, Stethoscope } from 'lucide-react';
-// 🟢 匯入我們剛剛做好的獨立排班表
 import StaffRosterView from './StaffRoster';
 
 // --- 設定區 ---
@@ -54,38 +53,41 @@ export default function AdminPage() {
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800">
       <div className="max-w-[1600px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          診所管理中樞 V6.1
+          診所管理中樞 V6.2
           {authLevel === 'manager' && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">排班模式</span>}
         </h1>
         
         <div className="flex bg-white p-1 rounded-xl border shadow-sm overflow-x-auto">
           {authLevel === 'boss' && (
-            <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'attendance' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-              <CheckCircle size={16}/> 考勤紀錄
+            <>
+              <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'attendance' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+                <CheckCircle size={16}/> 考勤紀錄
+              </button>
+              <button onClick={() => setActiveTab('staff_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'staff_roster' ? 'bg-purple-100 text-purple-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+                <Calendar size={16}/> 員工排班
+              </button>
+              <button onClick={() => setActiveTab('doctor_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'doctor_roster' ? 'bg-teal-100 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+                <Stethoscope size={16}/> 醫師排班
+              </button>
+            </>
+          )}
+          
+          {authLevel === 'manager' && (
+            <button onClick={() => setActiveTab('staff_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap bg-purple-100 text-purple-700`}>
+              <Calendar size={16}/> 員工排班
             </button>
           )}
-          <button onClick={() => setActiveTab('staff_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'staff_roster' ? 'bg-purple-100 text-purple-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <Calendar size={16}/> 員工排班
-          </button>
-          <button onClick={() => setActiveTab('doctor_roster')} className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 whitespace-nowrap ${activeTab === 'doctor_roster' ? 'bg-teal-100 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-            <Stethoscope size={16}/> 醫師排班
-          </button>
         </div>
       </div>
 
       {activeTab === 'attendance' && authLevel === 'boss' && <AttendanceView />}
-      
-      {/* 🟢 這裡直接呼叫獨立出來的員工排班元件 */}
       {activeTab === 'staff_roster' && <StaffRosterView />}
-      
-      {activeTab === 'doctor_roster' && <DoctorRosterView />}
+      {activeTab === 'doctor_roster' && authLevel === 'boss' && <DoctorRosterView />}
     </div>
   );
 }
 
-// ==================================================================================
-// 1. 考勤管理 (老闆專用) - 已完整恢復
-// ==================================================================================
+// 考勤元件
 function AttendanceView() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -200,9 +202,7 @@ function AttendanceView() {
   );
 }
 
-// ==================================================================================
-// 3. 醫師排班 (維持在 page.tsx，因為邏輯不同)
-// ==================================================================================
+// 醫師排班
 function DoctorRosterView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [doctors, setDoctors] = useState<Staff[]>([]);
@@ -228,9 +228,16 @@ function DoctorRosterView() {
 
     const { data } = await supabase.from('roster').select('*').gte('date', startStr).lt('date', endStr);
     const map: Record<string, DoctorShift[]> = {};
+    
     data?.forEach((r: any) => {
       if(doctors.find(d => d.id === r.staff_id)) {
-        map[`${r.staff_id}_${r.date}`] = Array.isArray(r.shifts) ? r.shifts : [];
+        // 🔧 防呆檢查：只讀取格式正確的資料
+        if (Array.isArray(r.shifts)) {
+          const validShifts = r.shifts.filter((s: any) => typeof s === 'object' && s.start && s.end);
+          map[`${r.staff_id}_${r.date}`] = validShifts;
+        } else {
+          map[`${r.staff_id}_${r.date}`] = [];
+        }
       }
     });
     setRosterMap(map);
