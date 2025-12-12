@@ -60,7 +60,7 @@ export default function AdminPage() {
         <div className="flex gap-2 items-center">
           {/* 🟢 薪資計算連結按鈕 (只有老闆看得到) */}
           {authLevel === 'boss' && (
-            <Link href="/salary">
+            <Link href="/salary" target="_blank">
               <button className="flex items-center gap-2 bg-green-600 text-white px-4 py-3 rounded-xl font-bold shadow-sm hover:bg-green-700 transition">
                 <DollarSign size={18}/> 薪資計算
               </button>

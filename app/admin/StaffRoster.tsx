@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { ChevronLeft, ChevronRight, ShieldAlert, Filter } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
 
+// --- 設定區 ---
 const SHIFT_CONFIG = {
   M: { label: '早', activeClass: 'bg-orange-400', hoverClass: 'hover:bg-orange-200', time: '08:00-12:30', hours: 4.5 },
   A: { label: '午', activeClass: 'bg-blue-400',   hoverClass: 'hover:bg-blue-200',   time: '15:00-18:00', hours: 3.0 },
@@ -17,7 +18,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 type Staff = { id: number; name: string; role: string; display_order: number; work_rule: 'normal'|'2week'|'4week'|'none'; };
 type Shift = 'M' | 'A' | 'N';
 
-// 🔧 定義職位分組
 const GROUP_CLINIC = ['護理師', '櫃台', '診所助理'];
 const GROUP_PHARMACY = ['藥師', '藥局助理'];
 
@@ -30,9 +30,9 @@ export default function StaffRosterView() {
   useEffect(() => { fetchStaff(); fetchRoster(); }, [currentDate]);
 
   const fetchStaff = async () => {
-    const { data } = await supabase.from('staff').select('*').order('display_order');
+    // 🔧 排序優化：先依照 role 排序，再依照 display_order 排序
+    const { data } = await supabase.from('staff').select('*').order('role').order('display_order');
     if (data) {
-      // 排除醫師和主管
       const validStaff = data.filter((s: any) => s.role !== '醫師' && s.role !== '主管');
       // @ts-ignore
       setStaffList(validStaff);
@@ -111,70 +111,118 @@ export default function StaffRosterView() {
     }
   };
 
+  // 📊 計算單人統計數據
+  const calculateStats = (staffId: number) => {
+    let totalDays = 0;
+    let totalHours = 0;
+    const days = getDaysInMonth();
+    
+    days.forEach(day => {
+      const key = `${staffId}_${day.dateStr}`;
+      const shifts = rosterMap[key] || [];
+      if (shifts.length > 0) {
+        totalDays++; // 只要當天有班，天數+1
+        shifts.forEach(s => {
+          // @ts-ignore
+          totalHours += SHIFT_CONFIG[s].hours;
+        });
+      }
+    });
+    return { totalDays, totalHours };
+  };
+
   const days = getDaysInMonth();
   const weekDays = ['日','一','二','三','四','五','六'];
 
-  // 🔧 渲染表格的輔助函式 (用來分開渲染兩個群組)
   const renderTable = (title: string, groupRoles: string[], colorClass: string) => {
-    const groupStaff = staffList.filter(s => groupRoles.includes(s.role || ''));
+    // 🔧 二次排序：先過濾出群組，再確保同職位在一起
+    const groupStaff = staffList
+      .filter(s => groupRoles.includes(s.role || ''))
+      .sort((a, b) => a.role.localeCompare(b.role) || a.display_order - b.display_order);
+
     if (groupStaff.length === 0) return null;
 
     return (
       <div className="mb-8">
         <h3 className={`font-bold text-lg mb-2 px-2 border-l-4 ${colorClass}`}>{title}</h3>
-        <table className="w-full border-collapse bg-white shadow-sm rounded-lg overflow-hidden">
-          <thead>
-            <tr>
-              <th className="p-2 border bg-slate-50 sticky left-0 z-20 min-w-[150px] text-left text-sm text-slate-500">員工</th>
-              {days.map(d => (
-                <th key={d.dateStr} className={`p-1 border text-center min-w-[40px] ${d.dayOfWeek===0||d.dayOfWeek===6?'bg-red-50 text-red-600':'bg-slate-50'}`}>
-                  <div className="text-xs font-bold">{d.dateObj.getDate()}</div><div className="text-[10px]">{weekDays[d.dayOfWeek]}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+        <div className="bg-white shadow-sm rounded-lg overflow-hidden flex">
+          {/* 左側固定欄：員工資訊 */}
+          <div className="min-w-[150px] border-r bg-white sticky left-0 z-20">
+            <div className="h-10 border-b bg-slate-50 p-2 text-sm text-slate-500 font-bold">員工</div>
             {groupStaff.map(staff => (
-              <tr key={staff.id}>
-                <td className="p-2 border font-bold text-slate-700 sticky left-0 bg-white z-10 shadow-sm align-top">
-                  <div className="flex justify-between items-center mb-1">
-                    <div>{staff.name}<div className="text-[10px] text-slate-400">{staff.role}</div></div>
-                    <select value={staff.work_rule || 'normal'} onChange={(e) => updateWorkRule(staff.id, e.target.value)} className="text-[10px] border rounded bg-slate-50 max-w-[70px]">
-                      <option value="normal">正常</option>
-                      <option value="2week">2週</option>
-                      <option value="4week">4週</option>
-                      <option value="none">免</option>
-                    </select>
-                  </div>
-                  {complianceErrors[staff.id] && <div className="mt-1 text-[10px] text-red-600 bg-red-50 p-1 rounded border border-red-100 flex items-center gap-1"><ShieldAlert size={10}/> {complianceErrors[staff.id][0]}</div>}
-                </td>
-                {days.map(d => {
-                  const key = `${staff.id}_${d.dateStr}`;
-                  const shifts = rosterMap[key] || [];
-                  return (
-                    <td key={d.dateStr} className="border p-1 text-center align-top h-16 hover:bg-slate-50">
-                      <div className="flex flex-col gap-[2px] h-full justify-center">
-                        {(['M','A','N'] as Shift[]).map(s => {
-                          const isActive = shifts.includes(s);
-                          // @ts-ignore
-                          const cfg = SHIFT_CONFIG[s];
-                          return <button key={s} onClick={() => toggleShift(staff.id, d.dateStr, s)} className={`h-2.5 w-full rounded-[2px] transition ${isActive ? cfg.activeClass : `bg-slate-100 ${cfg.hoverClass}`}`}/>;
-                        })}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
+              <div key={staff.id} className="h-16 border-b p-2 flex flex-col justify-center">
+                <div className="flex justify-between items-center mb-1">
+                  <div>{staff.name}<div className="text-[10px] text-slate-400">{staff.role}</div></div>
+                  <select value={staff.work_rule || 'normal'} onChange={(e) => updateWorkRule(staff.id, e.target.value)} className="text-[10px] border rounded bg-slate-50 max-w-[60px]">
+                    <option value="normal">正常</option>
+                    <option value="2week">2週</option>
+                    <option value="4week">4週</option>
+                    <option value="none">免</option>
+                  </select>
+                </div>
+                {complianceErrors[staff.id] && <div className="text-[10px] text-red-600 bg-red-50 p-0.5 rounded flex items-center gap-1"><ShieldAlert size={10}/> 違規</div>}
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+
+          {/* 中間滾動欄：排班表格 */}
+          <div className="flex-1 overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  {days.map(d => (
+                    <th key={d.dateStr} className={`p-1 border text-center min-w-[40px] h-10 ${d.dayOfWeek===0||d.dayOfWeek===6?'bg-red-50 text-red-600':'bg-slate-50'}`}>
+                      <div className="text-xs font-bold">{d.dateObj.getDate()}</div><div className="text-[10px]">{weekDays[d.dayOfWeek]}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groupStaff.map(staff => (
+                  <tr key={staff.id}>
+                    {days.map(d => {
+                      const key = `${staff.id}_${d.dateStr}`;
+                      const shifts = rosterMap[key] || [];
+                      return (
+                        <td key={d.dateStr} className="border p-1 text-center align-top h-16 hover:bg-slate-50 min-w-[40px]">
+                          <div className="flex flex-col gap-[2px] h-full justify-center">
+                            {(['M','A','N'] as Shift[]).map(s => {
+                              const isActive = shifts.includes(s);
+                              // @ts-ignore
+                              const cfg = SHIFT_CONFIG[s];
+                              return <button key={s} onClick={() => toggleShift(staff.id, d.dateStr, s)} className={`h-2.5 w-full rounded-[2px] transition ${isActive ? cfg.activeClass : `bg-slate-100 ${cfg.hoverClass}`}`}/>;
+                            })}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 右側固定欄：統計數據 */}
+          <div className="min-w-[100px] border-l bg-slate-50 sticky right-0 z-20">
+            <div className="h-10 border-b p-2 text-xs text-slate-500 font-bold text-center flex items-center justify-center">本月統計</div>
+            {groupStaff.map(staff => {
+              const stats = calculateStats(staff.id);
+              return (
+                <div key={staff.id} className="h-16 border-b p-2 flex flex-col justify-center text-center text-xs bg-white">
+                  <div className="font-bold text-slate-800">{stats.totalDays} 天</div>
+                  <div className="text-slate-500 font-mono">{stats.totalHours} hr</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="max-w-full overflow-x-auto p-4 animate-fade-in">
-      <div className="flex justify-between mb-4 sticky left-0 min-w-[800px] items-center">
+    <div className="w-full p-4 animate-fade-in">
+      <div className="flex justify-between mb-4 items-center">
         <div className="flex items-center gap-4 bg-slate-100 p-1 rounded-full">
           <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="p-2 hover:bg-white rounded-full"><ChevronLeft size={16}/></button>
           <h2 className="text-lg font-bold min-w-[100px] text-center">{currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月</h2>
@@ -189,9 +237,7 @@ export default function StaffRosterView() {
 
       {renderTable("🏥 診所人員 (護理/櫃台/診助)", GROUP_CLINIC, "border-blue-500 text-blue-700")}
       {renderTable("💊 藥局人員 (藥師/藥助)", GROUP_PHARMACY, "border-green-500 text-green-700")}
-      
-      {/* 顯示未分類人員 (避免漏掉) */}
-      {renderTable("⚠️ 其他人員 (未分類)", staffList.map(s=>s.role).filter(r => !GROUP_CLINIC.includes(r) && !GROUP_PHARMACY.includes(r)), "border-gray-500 text-gray-700")}
+      {renderTable("⚠️ 其他人員", staffList.map(s=>s.role).filter(r => !GROUP_CLINIC.includes(r) && !GROUP_PHARMACY.includes(r)), "border-gray-500 text-gray-700")}
     </div>
   );
 }
